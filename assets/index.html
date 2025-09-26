@@ -1,0 +1,161 @@
+
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Inventaire — Schéma unifié (CSV)</title>
+<link rel="stylesheet" href="assets/style.css"/>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <h1>Inventaire — Schéma unifié</h1>
+    <div class="controls">
+      <select id="domain">
+        <option value="faucigny">Faucigny</option>
+        <option value="gresivaudan">Grésivaudan</option>
+      </select>
+      <input id="q" placeholder="Rechercher…"/>
+      <select id="year"><option value="">Année…</option></select>
+      <button id="btn-fenetres">Fenêtres auto</button>
+      <span id="count" class="badge">0</span>
+    </div>
+  </div>
+</header>
+
+<main class="main">
+  <p><small>Schema unique pour tous les domaines : <code>Date, N° acte, Personnages / Objet, Citation latine, Traduction française</code>. Le Grésivaudan n’a <em>pas</em> de traductions pour l’instant — c’est volontaire.</small></p>
+  <table class="table" id="tbl">
+    <thead>
+      <tr><th>Date</th><th>N°</th><th>Personnages / Objet</th><th>Latin</th><th>Traduction</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</main>
+
+<div class="modal" id="modal">
+  <div class="card">
+    <header>
+      <div><strong id="m-title"></strong><div id="m-meta" style="color:#a8acb3;font-size:12px"></div></div>
+      <div>
+        <button id="prev">◀</button>
+        <button id="play">Lecture auto</button>
+        <button id="next">▶</button>
+        <button id="close">Fermer ✕</button>
+      </div>
+    </header>
+    <div class="section">
+      <h3>Personnages / Objet</h3>
+      <div id="m-objet"></div>
+    </div>
+    <div class="section">
+      <h3>Texte latin</h3>
+      <pre id="m-latin"></pre>
+    </div>
+    <div class="section">
+      <h3>Traduction</h3>
+      <div id="m-trad"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function loadCSV(url){
+  const txt = await (await fetch(url)).text();
+  const lines = txt.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l=>l.trim().length>0);
+  if(!lines.length) return [];
+  const head = lines[0];
+  const delim = (head.split(';').length>head.split(',').length)?';':',';
+  const headers = head.split(delim).map(s=>s.trim());
+  const rows=[];
+  function parseLine(line){
+    const cells=[]; let cur=''; let inq=false;
+    for(let j=0;j<line.length;j++){
+      const ch=line[j];
+      if(ch==='"'){inq=!inq; continue;}
+      if(ch===delim && !inq){cells.push(cur); cur='';} else {cur+=ch;}
+    }
+    cells.push(cur);
+    return cells.map(c=>c.trim());
+  }
+  for(let i=1;i<lines.length;i++){
+    const c = parseLine(lines[i]);
+    const o={};
+    headers.forEach((h,idx)=>o[h]=c[idx]||'');
+    rows.push(o);
+  }
+  return rows;
+}
+function get(r,k){ return r[k]||''; }
+function yearFrom(s){ const m=(s||'').match(/(\d{4})/); return m?m[1]:''; }
+const S={rows:[],filtered:[],idx:0,playing:false,timer:null,interval:6000};
+
+function yearOptions(){
+  const sel=document.getElementById('year'); sel.innerHTML='<option value="">Année…</option>';
+  const years=[...new Set(S.rows.map(r=>yearFrom(get(r,'Date'))))].filter(Boolean).sort();
+  years.forEach(y=>{const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);});
+}
+function applyFilter(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const y=document.getElementById('year').value;
+  S.filtered = S.rows.filter(r=>{
+    const blob = [get(r,'Date'),get(r,'N° acte'),get(r,'Personnages / Objet'),get(r,'Citation latine'),get(r,'Traduction française')].join(' ').toLowerCase();
+    const okQ = !q || blob.includes(q);
+    const okY = !y || yearFrom(get(r,'Date'))===y;
+    return okQ && okY;
+  });
+  document.getElementById('count').textContent = S.filtered.length;
+  renderTable();
+}
+function renderTable(){
+  const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
+  S.filtered.forEach((r,i)=>{
+    const trad = get(r,'Traduction française');
+    const tag = trad.trim()? '' : '<span class="tag">À traduire</span>';
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${get(r,'Date')}</td>
+                    <td>${get(r,'N° acte')}</td>
+                    <td>${get(r,'Personnages / Objet')}</td>
+                    <td>${(get(r,'Citation latine')||'').slice(0,120)}${get(r,'Citation latine').length>120?'…':''}</td>
+                    <td>${(trad||'').slice(0,120)}${trad.length>120?'…':''} ${tag}</td>
+                    <td><button data-i="${i}">Voir</button></td>`;
+    tb.appendChild(tr);
+  });
+  tb.querySelectorAll('button').forEach(b=> b.addEventListener('click', e=> openModal(parseInt(e.target.getAttribute('data-i'),10))));
+}
+function openModal(i){
+  S.idx=i;
+  const r=S.filtered[i];
+  document.getElementById('m-title').textContent = `Acte ${get(r,'N° acte')}`;
+  document.getElementById('m-meta').textContent = get(r,'Date');
+  document.getElementById('m-objet').textContent = get(r,'Personnages / Objet');
+  document.getElementById('m-latin').textContent = get(r,'Citation latine');
+  document.getElementById('m-trad').textContent = get(r,'Traduction française') || '(à traduire)';
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal(){document.getElementById('modal').classList.remove('open'); stop();}
+function next(d=1){if(!S.filtered.length)return; S.idx=(S.idx+d+S.filtered.length)%S.filtered.length; openModal(S.idx);}
+function play(){S.playing=true;document.getElementById('play').textContent='Lecture auto (ON)'; if(S.timer)clearInterval(S.timer); S.timer=setInterval(()=>next(1),S.interval);}
+function stop(){S.playing=false;document.getElementById('play').textContent='Lecture auto'; if(S.timer){clearInterval(S.timer);S.timer=null;}}
+
+document.getElementById('btn-fenetres').onclick=()=>{ if(S.filtered.length){ openModal(0); play(); } };
+document.getElementById('close').onclick=closeModal;
+document.getElementById('next').onclick=()=>next(1);
+document.getElementById('prev').onclick=()=>next(-1);
+document.getElementById('play').onclick=()=> S.playing ? stop() : play();
+document.getElementById('q').oninput=applyFilter;
+document.getElementById('year').onchange=applyFilter;
+document.getElementById('domain').onchange=async(e)=>{
+  const file = 'assets/'+e.target.value+'.csv';
+  S.rows = await loadCSV(file);
+  yearOptions(); applyFilter();
+};
+
+(async function init(){
+  S.rows = await loadCSV('assets/faucigny.csv');
+  yearOptions(); applyFilter();
+})();
+</script>
+</body>
+</html>
