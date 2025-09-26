@@ -4,42 +4,53 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Faucigny – Lecteur HTML léger</title>
+  <title>Inventaire — Lecteur HTML (CSV)</title>
   <link rel="stylesheet" href="assets/style.css"/>
 </head>
 <body>
 <header>
   <div class="header-inner">
-    <h1>Inventaire Faucigny (HTML léger)</h1>
+    <h1>Inventaire (CSV) — Lecteur HTML rapide</h1>
     <div class="controls">
-      <input id="q" placeholder="Rechercher (latin, traduction, personnes, n°…)" />
-      <select id="year">
-        <option value="">Année…</option>
+      <select id="domain">
+        <option value="faucigny">Faucigny</option>
+        <option value="viennois">Viennois</option>
+        <option value="gresivaudan">Grésivaudan</option>
+        <option value="valentinois">Valentinois</option>
+        <option value="tour-valbonne">La Tour &amp; Valbonne</option>
+        <option value="montauban-mevouillon">Montauban &amp; Mévouillon</option>
       </select>
-      <button id="btn-list">Liste</button>
-      <button id="btn-fenetres">Fenêtres auto</button>
+      <input id="q" placeholder="Rechercher (latin, traduction, personnes, n°…)"/>
+      <select id="year"><option value="">Année…</option></select>
+      <button id="btn-list" class="btn-ghost">Liste</button>
+      <button id="btn-fenetres" class="btn-primary">Fenêtres auto</button>
+      <button id="theme" class="toggle btn-ghost" title="Basculer clair/sombre">🌗</button>
       <span id="count" class="badge">0 acte</span>
     </div>
   </div>
 </header>
 
 <main class="main">
+  <div class="toolbar">
+    <div class="chips" id="chips"></div>
+    <div class="small">Paramètres URL : <code>?y=1290&q=Humbert&d=faucigny</code></div>
+  </div>
   <table class="table" id="tbl">
     <thead>
       <tr>
-        <th>Date</th>
-        <th>N°</th>
+        <th style="width:120px">Date</th>
+        <th style="width:90px">N°</th>
         <th>Personnages / Objet</th>
         <th>Latin</th>
         <th>Traduction</th>
-        <th></th>
+        <th style="width:90px"></th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
 </main>
 
-<div class="footer">HTML pur + CSS + JS — lit <code>assets/actes.csv</code> côté client. Mode “fenêtres” = affichage automatique en plein écran, avec recherche/filtre actifs.</div>
+<div class="footer">HTML pur + CSS + JS — charge <code>assets/&lt;domaine&gt;.csv</code>. Ajoute juste les fichiers : <code>faucigny.csv</code>, <code>viennois.csv</code>, etc.</div>
 
 <!-- Modal -->
 <div class="modal" id="modal">
@@ -51,6 +62,8 @@
           <div class="meta" id="m-meta"></div>
         </div>
         <div class="row-actions">
+          <label class="small">Intervalle</label>
+          <input id="interval" type="number" min="2000" step="500" value="6000" style="width:90px"/>
           <button id="prev">◀</button>
           <button id="play">Lecture auto</button>
           <button id="next">▶</button>
@@ -74,7 +87,11 @@
 </div>
 
 <script>
-// Tiny CSV loader with delimiter auto-detect (; or ,), naive quotes handling
+function params(){const p=new URLSearchParams(location.search);return {y:p.get('y')||'',q:p.get('q')||'',d:p.get('d')||''};}
+function setParam(k,v){const p=new URLSearchParams(location.search); if(v) p.set(k,v); else p.delete(k); history.replaceState(null,'','?'+p.toString());}
+function norm(s){return (s||'').toLowerCase();}
+function yearFrom(s){const m=(s||'').match(/(\d{4})/); return m?m[1]:'';}
+
 async function loadCSV(url){
   const txt = await (await fetch(url)).text();
   const delim = (txt.indexOf(';') >= 0 && (txt.split(';').length > txt.split(',').length)) ? ';' : ',';
@@ -83,7 +100,6 @@ async function loadCSV(url){
   const headers = lines[0].split(delim).map(h=>h.trim());
   const rows = [];
   for(let i=1;i<lines.length;i++){
-    // simple split; handle quoted cells that may contain delimiter
     let line = lines[i];
     const cells=[]; let cur=''; let inq=false;
     for(let j=0;j<line.length;j++){
@@ -100,26 +116,21 @@ async function loadCSV(url){
   return {headers, rows};
 }
 
-function norm(s){return (s||'').toLowerCase();}
-function yearFrom(s){
-  const m=(s||'').match(/(\d{4})/); return m?m[1]:'';
+const state = {rows:[], filtered:[], idx:0, playing:false, timer:null, interval:6000, domain:'faucigny'};
+
+function yearOptions(rows){
+  const sel=document.getElementById('year'); sel.innerHTML='<option value="">Année…</option>';
+  const years = Array.from(new Set(rows.map(r=>yearFrom(r['Date']||r['date'])))).filter(Boolean).sort();
+  years.forEach(y=>{const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);});
 }
 
-const state = {
-  rows: [],
-  filtered: [],
-  idx: 0,
-  playing: false,
-  timer: null,
-  interval: 6000
-};
-
-function buildYearOptions(rows){
-  const sel = document.getElementById('year');
-  const years = Array.from(new Set(rows.map(r=>yearFrom(r['Date']||r['date'])))).filter(Boolean).sort();
-  years.forEach(y=>{
-    const opt=document.createElement('option'); opt.value=y; opt.textContent=y; sel.appendChild(opt);
-  });
+function chipsInfo(rows){
+  const c = document.getElementById('chips'); c.innerHTML='';
+  const n = rows.length;
+  const dates = Array.from(new Set(rows.map(r=>yearFrom(r['Date'])))).filter(Boolean).length;
+  const mk=(t)=>{const s=document.createElement('span'); s.className='chip'; s.textContent=t; return s;};
+  c.appendChild(mk(n+' actes'));
+  c.appendChild(mk(dates+' années'));
 }
 
 function applyFilter(){
@@ -134,28 +145,30 @@ function applyFilter(){
   state.filtered = rows;
   document.getElementById('count').textContent = rows.length + (rows.length>1?' actes':' acte');
   renderTable(rows);
+  setParam('q', document.getElementById('q').value.trim());
+  setParam('y', y);
 }
 
 function renderTable(rows){
-  const tbody = document.querySelector('#tbl tbody');
-  tbody.innerHTML = '';
-  const get = (r,k) => r[k] || r[k.toLowerCase()] || '';
+  const tbody=document.querySelector('#tbl tbody'); tbody.innerHTML='';
+  const get=(r,k)=>r[k]||r[k.toLowerCase()]||'';
   rows.forEach((r,i)=>{
     const tr=document.createElement('tr');
-    const tdD=document.createElement('td'); tdD.textContent=get(r,'Date'); tr.appendChild(tdD);
-    const tdN=document.createElement('td'); tdN.textContent=get(r,'N° acte')||get(r,'Numero')||get(r,'N°'); tr.appendChild(tdN);
-    const tdO=document.createElement('td'); tdO.textContent=get(r,'Personnages / Objet')||get(r,'Personnages')||get(r,'Objet'); tr.appendChild(tdO);
-    const tdL=document.createElement('td'); tdL.textContent=(get(r,'Citation latine')||get(r,'Latin')).slice(0,120)+( (get(r,'Citation latine')||get(r,'Latin')).length>120?'…':'' ); tr.appendChild(tdL);
-    const tdT=document.createElement('td'); tdT.textContent=(get(r,'Traduction française')||get(r,'Traduction')).slice(0,120)+( (get(r,'Traduction française')||get(r,'Traduction')).length>120?'…':'' ); tr.appendChild(tdT);
-    const tdA=document.createElement('td'); const b=document.createElement('button'); b.textContent='Voir'; b.onclick=()=>openModal(i); tdA.appendChild(b); tr.appendChild(tdA);
+    tr.innerHTML = `<td>${get(r,'Date')}</td>
+                    <td>${get(r,'N° acte')||get(r,'Numero')||get(r,'N°')}</td>
+                    <td>${get(r,'Personnages / Objet')||get(r,'Personnages')||get(r,'Objet')}</td>
+                    <td>${(get(r,'Citation latine')||get(r,'Latin')).slice(0,140)}${(get(r,'Citation latine')||get(r,'Latin')).length>140?'…':''}</td>
+                    <td>${(get(r,'Traduction française')||get(r,'Traduction')).slice(0,140)}${(get(r,'Traduction française')||get(r,'Traduction')).length>140?'…':''}</td>
+                    <td><button data-i="${i}">Voir</button></td>`;
     tbody.appendChild(tr);
   });
+  tbody.querySelectorAll('button').forEach(b=> b.addEventListener('click', e=> openModal(parseInt(e.target.getAttribute('data-i'),10))));
 }
 
 function openModal(i){
   state.idx = i;
   const r = state.filtered[i];
-  const get = (k) => r[k] || r[k.toLowerCase()] || '';
+  const get=(k)=>r[k]||r[k.toLowerCase()]||'';
   document.getElementById('m-title').textContent = `Acte ${get('N° acte')||get('Numero')||get('N°')}`;
   document.getElementById('m-meta').textContent = `${get('Date')}`;
   document.getElementById('m-objet').textContent = get('Personnages / Objet')||get('Personnages')||get('Objet');
@@ -164,57 +177,64 @@ function openModal(i){
   document.getElementById('modal').classList.add('open');
 }
 
-function closeModal(){
-  document.getElementById('modal').classList.remove('open');
-  stop();
-}
+function closeModal(){ document.getElementById('modal').classList.remove('open'); stop(); }
+function next(delta=1){ if(state.filtered.length===0) return; state.idx=(state.idx+delta+state.filtered.length)%state.filtered.length; openModal(state.idx); }
+function play(){ state.playing=true; document.getElementById('play').textContent='Lecture auto (ON)'; document.getElementById('play').classList.add('playing'); if(state.timer) clearInterval(state.timer); state.timer=setInterval(()=>next(1), state.interval); }
+function stop(){ state.playing=false; document.getElementById('play').textContent='Lecture auto'; document.getElementById('play').classList.remove('playing'); if(state.timer){clearInterval(state.timer); state.timer=null;} }
 
-function next(delta=1){
-  if(state.filtered.length===0) return;
-  state.idx = (state.idx + delta + state.filtered.length) % state.filtered.length;
-  openModal(state.idx);
-}
-
-function play(){
-  state.playing = true;
-  document.getElementById('play').textContent = 'Lecture auto (ON)';
-  document.getElementById('play').classList.add('playing');
-  if(state.timer) clearInterval(state.timer);
-  state.timer = setInterval(()=>next(1), state.interval);
-}
-
-function stop(){
-  state.playing = false;
-  document.getElementById('play').textContent = 'Lecture auto';
-  document.getElementById('play').classList.remove('playing');
-  if(state.timer){clearInterval(state.timer); state.timer=null;}
-}
-
-document.getElementById('btn-fenetres').addEventListener('click', ()=>{
-  if(state.filtered.length>0){ openModal(0); play(); }
-});
-document.getElementById('btn-list').addEventListener('click', ()=>{
-  closeModal();
-});
-
-document.getElementById('q').addEventListener('input', applyFilter);
-document.getElementById('year').addEventListener('change', applyFilter);
-
+document.getElementById('btn-fenetres').addEventListener('click', ()=>{ if(state.filtered.length>0){ openModal(0); play(); }});
+document.getElementById('btn-list').addEventListener('click', ()=> closeModal());
 document.getElementById('close').addEventListener('click', closeModal);
 document.getElementById('next').addEventListener('click', ()=>next(1));
 document.getElementById('prev').addEventListener('click', ()=>next(-1));
 document.getElementById('play').addEventListener('click', ()=> state.playing ? stop() : play());
-window.addEventListener('keydown', (e)=>{
-  if(!document.getElementById('modal').classList.contains('open')) return;
-  if(e.key==='Escape') closeModal();
-  if(e.key==='ArrowRight') next(1);
-  if(e.key==='ArrowLeft') next(-1);
+document.getElementById('interval').addEventListener('change', (e)=>{ const v=parseInt(e.target.value,10); if(v>=2000){ state.interval=v; if(state.playing){ stop(); play(); }}});
+window.addEventListener('keydown', (e)=>{ if(!document.getElementById('modal').classList.contains('open')) return;
+  if(e.key==='Escape') closeModal(); if(e.key==='ArrowRight') next(1); if(e.key==='ArrowLeft') next(-1);
 });
 
+// Theme toggle
+const themeBtn=document.getElementById('theme');
+function applyTheme(t){ document.body.classList.toggle('light', t==='light'); localStorage.setItem('theme', t); }
+themeBtn.addEventListener('click', ()=>{ const t = document.body.classList.contains('light') ? 'dark' : 'light'; applyTheme(t); });
+applyTheme(localStorage.getItem('theme')||'dark');
+
+// Domain (dataset) handling
+async function loadDomain(d){
+  state.domain = d;
+  setParam('d', d);
+  let file = `assets/${d}.csv`;
+  try{
+    const {rows} = await loadCSV(file);
+    state.rows = rows; yearOptions(rows); chipsInfo(rows); applyFilter();
+  }catch(e){
+    alert(`Données absentes pour « ${d} ». Ajoutez ${file} et rechargez.`);
+    // revert to faucigny
+    document.getElementById('domain').value = 'faucigny';
+    const {rows} = await loadCSV('assets/faucigny.csv');
+    state.rows = rows; yearOptions(rows); chipsInfo(rows); applyFilter();
+  }
+}
+
+document.getElementById('domain').addEventListener('change', (e)=> loadDomain(e.target.value));
+document.getElementById('q').addEventListener('input', applyFilter);
+document.getElementById('year').addEventListener('change', applyFilter);
+
+// Init with URL params
 (async function init(){
-  const {rows} = await loadCSV('assets/actes.csv');
-  state.rows = rows;
-  buildYearOptions(rows);
+  const p = params();
+  const d = p.d || 'faucigny';
+  document.getElementById('domain').value = d;
+  const {rows} = await loadCSV(`assets/${d}.csv`).catch(()=>({rows:[]}));
+  if(rows.length===0){
+    // fallback
+    const r2 = await loadCSV('assets/faucigny.csv'); state.rows=r2.rows;
+  }else{
+    state.rows = rows;
+  }
+  yearOptions(state.rows); chipsInfo(state.rows);
+  document.getElementById('q').value = p.q || '';
+  if(p.y){ document.getElementById('year').value = p.y; }
   applyFilter();
 })();
 </script>
