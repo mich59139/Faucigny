@@ -1,0 +1,222 @@
+
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Faucigny – Lecteur HTML léger</title>
+  <link rel="stylesheet" href="assets/style.css"/>
+</head>
+<body>
+<header>
+  <div class="header-inner">
+    <h1>Inventaire Faucigny (HTML léger)</h1>
+    <div class="controls">
+      <input id="q" placeholder="Rechercher (latin, traduction, personnes, n°…)" />
+      <select id="year">
+        <option value="">Année…</option>
+      </select>
+      <button id="btn-list">Liste</button>
+      <button id="btn-fenetres">Fenêtres auto</button>
+      <span id="count" class="badge">0 acte</span>
+    </div>
+  </div>
+</header>
+
+<main class="main">
+  <table class="table" id="tbl">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>N°</th>
+        <th>Personnages / Objet</th>
+        <th>Latin</th>
+        <th>Traduction</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</main>
+
+<div class="footer">HTML pur + CSS + JS — lit <code>assets/actes.csv</code> côté client. Mode “fenêtres” = affichage automatique en plein écran, avec recherche/filtre actifs.</div>
+
+<!-- Modal -->
+<div class="modal" id="modal">
+  <div class="card">
+    <header>
+      <div class="head">
+        <div>
+          <h2 id="m-title">Acte — </h2>
+          <div class="meta" id="m-meta"></div>
+        </div>
+        <div class="row-actions">
+          <button id="prev">◀</button>
+          <button id="play">Lecture auto</button>
+          <button id="next">▶</button>
+          <button id="close">Fermer ✕</button>
+        </div>
+      </div>
+    </header>
+    <div class="section">
+      <h3>Personnages / Objet</h3>
+      <div id="m-objet"></div>
+    </div>
+    <div class="section">
+      <h3>Texte latin</h3>
+      <pre id="m-latin"></pre>
+    </div>
+    <div class="section">
+      <h3>Traduction</h3>
+      <div id="m-trad"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Tiny CSV loader with delimiter auto-detect (; or ,), naive quotes handling
+async function loadCSV(url){
+  const txt = await (await fetch(url)).text();
+  const delim = (txt.indexOf(';') >= 0 && (txt.split(';').length > txt.split(',').length)) ? ';' : ',';
+  const lines = txt.split(/\r?\n/).filter(l => l.trim().length>0);
+  if(lines.length===0){return {headers:[], rows:[]};}
+  const headers = lines[0].split(delim).map(h=>h.trim());
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    // simple split; handle quoted cells that may contain delimiter
+    let line = lines[i];
+    const cells=[]; let cur=''; let inq=false;
+    for(let j=0;j<line.length;j++){
+      const ch=line[j];
+      if(ch==='"'){inq=!inq; continue;}
+      if(ch===delim && !inq){cells.push(cur); cur='';}
+      else{cur+=ch;}
+    }
+    cells.push(cur);
+    const obj={};
+    headers.forEach((h,idx)=>{obj[h]= (cells[idx]||'').trim();});
+    rows.push(obj);
+  }
+  return {headers, rows};
+}
+
+function norm(s){return (s||'').toLowerCase();}
+function yearFrom(s){
+  const m=(s||'').match(/(\d{4})/); return m?m[1]:'';
+}
+
+const state = {
+  rows: [],
+  filtered: [],
+  idx: 0,
+  playing: false,
+  timer: null,
+  interval: 6000
+};
+
+function buildYearOptions(rows){
+  const sel = document.getElementById('year');
+  const years = Array.from(new Set(rows.map(r=>yearFrom(r['Date']||r['date'])))).filter(Boolean).sort();
+  years.forEach(y=>{
+    const opt=document.createElement('option'); opt.value=y; opt.textContent=y; sel.appendChild(opt);
+  });
+}
+
+function applyFilter(){
+  const q = norm(document.getElementById('q').value);
+  const y = document.getElementById('year').value;
+  const rows = state.rows.filter(r=>{
+    const blob = [r['Date'], r['N° acte']||r['Numero']||r['N°'], r['Personnages / Objet']||r['Personnages']||r['Objet'], r['Citation latine']||r['Latin'], r['Traduction française']||r['Traduction']].join(' ').toLowerCase();
+    const okQ = !q || blob.includes(q);
+    const okY = !y || yearFrom(r['Date'])===y;
+    return okQ && okY;
+  });
+  state.filtered = rows;
+  document.getElementById('count').textContent = rows.length + (rows.length>1?' actes':' acte');
+  renderTable(rows);
+}
+
+function renderTable(rows){
+  const tbody = document.querySelector('#tbl tbody');
+  tbody.innerHTML = '';
+  const get = (r,k) => r[k] || r[k.toLowerCase()] || '';
+  rows.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    const tdD=document.createElement('td'); tdD.textContent=get(r,'Date'); tr.appendChild(tdD);
+    const tdN=document.createElement('td'); tdN.textContent=get(r,'N° acte')||get(r,'Numero')||get(r,'N°'); tr.appendChild(tdN);
+    const tdO=document.createElement('td'); tdO.textContent=get(r,'Personnages / Objet')||get(r,'Personnages')||get(r,'Objet'); tr.appendChild(tdO);
+    const tdL=document.createElement('td'); tdL.textContent=(get(r,'Citation latine')||get(r,'Latin')).slice(0,120)+( (get(r,'Citation latine')||get(r,'Latin')).length>120?'…':'' ); tr.appendChild(tdL);
+    const tdT=document.createElement('td'); tdT.textContent=(get(r,'Traduction française')||get(r,'Traduction')).slice(0,120)+( (get(r,'Traduction française')||get(r,'Traduction')).length>120?'…':'' ); tr.appendChild(tdT);
+    const tdA=document.createElement('td'); const b=document.createElement('button'); b.textContent='Voir'; b.onclick=()=>openModal(i); tdA.appendChild(b); tr.appendChild(tdA);
+    tbody.appendChild(tr);
+  });
+}
+
+function openModal(i){
+  state.idx = i;
+  const r = state.filtered[i];
+  const get = (k) => r[k] || r[k.toLowerCase()] || '';
+  document.getElementById('m-title').textContent = `Acte ${get('N° acte')||get('Numero')||get('N°')}`;
+  document.getElementById('m-meta').textContent = `${get('Date')}`;
+  document.getElementById('m-objet').textContent = get('Personnages / Objet')||get('Personnages')||get('Objet');
+  document.getElementById('m-latin').textContent = get('Citation latine')||get('Latin');
+  document.getElementById('m-trad').textContent = get('Traduction française')||get('Traduction');
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal(){
+  document.getElementById('modal').classList.remove('open');
+  stop();
+}
+
+function next(delta=1){
+  if(state.filtered.length===0) return;
+  state.idx = (state.idx + delta + state.filtered.length) % state.filtered.length;
+  openModal(state.idx);
+}
+
+function play(){
+  state.playing = true;
+  document.getElementById('play').textContent = 'Lecture auto (ON)';
+  document.getElementById('play').classList.add('playing');
+  if(state.timer) clearInterval(state.timer);
+  state.timer = setInterval(()=>next(1), state.interval);
+}
+
+function stop(){
+  state.playing = false;
+  document.getElementById('play').textContent = 'Lecture auto';
+  document.getElementById('play').classList.remove('playing');
+  if(state.timer){clearInterval(state.timer); state.timer=null;}
+}
+
+document.getElementById('btn-fenetres').addEventListener('click', ()=>{
+  if(state.filtered.length>0){ openModal(0); play(); }
+});
+document.getElementById('btn-list').addEventListener('click', ()=>{
+  closeModal();
+});
+
+document.getElementById('q').addEventListener('input', applyFilter);
+document.getElementById('year').addEventListener('change', applyFilter);
+
+document.getElementById('close').addEventListener('click', closeModal);
+document.getElementById('next').addEventListener('click', ()=>next(1));
+document.getElementById('prev').addEventListener('click', ()=>next(-1));
+document.getElementById('play').addEventListener('click', ()=> state.playing ? stop() : play());
+window.addEventListener('keydown', (e)=>{
+  if(!document.getElementById('modal').classList.contains('open')) return;
+  if(e.key==='Escape') closeModal();
+  if(e.key==='ArrowRight') next(1);
+  if(e.key==='ArrowLeft') next(-1);
+});
+
+(async function init(){
+  const {rows} = await loadCSV('assets/actes.csv');
+  state.rows = rows;
+  buildYearOptions(rows);
+  applyFilter();
+})();
+</script>
+</body>
+</html>

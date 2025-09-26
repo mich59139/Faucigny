@@ -1,0 +1,43 @@
+
+:root{
+  --bg:#0f1116; --fg:#e8e8ea; --muted:#a8acb3; --accent:#6aa3ff;
+  --card:#161a22; --border:#222838;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:16px/1.5 Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif}
+header{position:sticky;top:0;background:linear-gradient(to bottom,rgba(15,17,22,.9),rgba(15,17,22,.6));backdrop-filter:blur(6px);z-index:10;border-bottom:1px solid var(--border)}
+.header-inner{max-width:1100px;margin:0 auto;display:flex;gap:16px;align-items:center;padding:12px 16px}
+h1{font-size:18px;margin:0}
+.controls{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+input,select,button{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:8px 10px;outline:none}
+input::placeholder{color:var(--muted)}
+button{cursor:pointer}
+a{color:var(--accent)}
+
+.main{max-width:1100px;margin:0 auto;padding:16px;display:grid;gap:12px}
+.table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.table thead th{font-weight:600;text-align:left;padding:10px;border-bottom:1px solid var(--border);color:#cfd3dc;background:#1a1f28}
+.table tbody td{padding:10px;border-top:1px solid #1a1f28;vertical-align:top;color:#e2e5ec}
+.badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;color:var(--muted);font-size:12px}
+
+.hidden{display:none}
+
+.footer{max-width:1100px;margin:20px auto;padding:8px 16px;color:var(--muted);border-top:1px solid var(--border)}
+
+.modal{
+  position:fixed;inset:0;background:rgba(6,8,12,.7);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:100;
+}
+.modal.open{display:flex}
+.card{
+  width:min(940px,94vw);max-height:90vh;background:var(--card);border:1px solid var(--border);
+  border-radius:18px;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)
+}
+.card header{position:sticky;top:0;background:#151924;border-bottom:1px solid var(--border)}
+.card .head{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px}
+.card h2{margin:0;font-size:18px}
+.meta{color:var(--muted);font-size:13px}
+.section{padding:12px 16px}
+.section h3{margin:0 0 6px 0;font-size:13px;color:#cfd3dc;text-transform:uppercase;letter-spacing:.06em}
+.section pre{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#11151d;border:1px solid #252b3b;border-radius:10px;padding:10px}
+.row-actions{display:flex;gap:8px;align-items:center}
+.playing{color:#78ffa1}
