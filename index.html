@@ -2,73 +2,46 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Inventaire — Lecteur HTML (CSV)</title>
-  <link rel="stylesheet" href="assets/style.css"/>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Inventaire — Lecteur simple (CSV)</title>
+<link rel="stylesheet" href="assets/style.css"/>
 </head>
 <body>
 <header>
   <div class="header-inner">
-    <h1>Inventaire (CSV) — Lecteur HTML rapide</h1>
+    <h1>Inventaire — Lecteur simple</h1>
     <div class="controls">
       <select id="domain">
         <option value="faucigny">Faucigny</option>
-        <option value="viennois">Viennois</option>
         <option value="gresivaudan">Grésivaudan</option>
-        <option value="valentinois">Valentinois</option>
-        <option value="tour-valbonne">La Tour &amp; Valbonne</option>
-        <option value="montauban-mevouillon">Montauban &amp; Mévouillon</option>
       </select>
-      <input id="q" placeholder="Rechercher (latin, traduction, personnes, n°…)"/>
+      <input id="q" placeholder="Rechercher…"/>
       <select id="year"><option value="">Année…</option></select>
-      <button id="btn-list" class="btn-ghost">Liste</button>
-      <button id="btn-fenetres" class="btn-primary">Fenêtres auto</button>
-      <button id="theme" class="toggle btn-ghost" title="Basculer clair/sombre">🌗</button>
-      <span id="count" class="badge">0 acte</span>
+      <button id="btn-fenetres">Fenêtres auto</button>
+      <span id="count" class="badge">0</span>
     </div>
   </div>
 </header>
 
 <main class="main">
-  <div class="toolbar">
-    <div class="chips" id="chips"></div>
-    <div class="small">Paramètres URL : <code>?y=1290&q=Humbert&d=faucigny</code></div>
-  </div>
   <table class="table" id="tbl">
     <thead>
-      <tr>
-        <th style="width:120px">Date</th>
-        <th style="width:90px">N°</th>
-        <th>Personnages / Objet</th>
-        <th>Latin</th>
-        <th>Traduction</th>
-        <th style="width:90px"></th>
-      </tr>
+      <tr><th>Date</th><th>N°</th><th>Personnages / Objet</th><th>Latin</th><th>Traduction</th><th></th></tr>
     </thead>
     <tbody></tbody>
   </table>
 </main>
 
-<div class="footer">HTML pur + CSS + JS — charge <code>assets/&lt;domaine&gt;.csv</code>. Ajoute juste les fichiers : <code>faucigny.csv</code>, <code>viennois.csv</code>, etc.</div>
-
-<!-- Modal -->
 <div class="modal" id="modal">
   <div class="card">
     <header>
-      <div class="head">
-        <div>
-          <h2 id="m-title">Acte — </h2>
-          <div class="meta" id="m-meta"></div>
-        </div>
-        <div class="row-actions">
-          <label class="small">Intervalle</label>
-          <input id="interval" type="number" min="2000" step="500" value="6000" style="width:90px"/>
-          <button id="prev">◀</button>
-          <button id="play">Lecture auto</button>
-          <button id="next">▶</button>
-          <button id="close">Fermer ✕</button>
-        </div>
+      <div><strong id="m-title"></strong><div id="m-meta" style="color:#a8acb3;font-size:12px"></div></div>
+      <div>
+        <button id="prev">◀</button>
+        <button id="play">Lecture auto</button>
+        <button id="next">▶</button>
+        <button id="close">Fermer ✕</button>
       </div>
     </header>
     <div class="section">
@@ -87,155 +60,95 @@
 </div>
 
 <script>
-function params(){const p=new URLSearchParams(location.search);return {y:p.get('y')||'',q:p.get('q')||'',d:p.get('d')||''};}
-function setParam(k,v){const p=new URLSearchParams(location.search); if(v) p.set(k,v); else p.delete(k); history.replaceState(null,'','?'+p.toString());}
-function norm(s){return (s||'').toLowerCase();}
-function yearFrom(s){const m=(s||'').match(/(\d{4})/); return m?m[1]:'';}
-
 async function loadCSV(url){
   const txt = await (await fetch(url)).text();
   const delim = (txt.indexOf(';') >= 0 && (txt.split(';').length > txt.split(',').length)) ? ';' : ',';
-  const lines = txt.split(/\r?\n/).filter(l => l.trim().length>0);
-  if(lines.length===0){return {headers:[], rows:[]};}
+  const lines = txt.split(/\r?\n/).filter(l=>l.trim().length>0);
+  if(!lines.length) return {rows:[]};
   const headers = lines[0].split(delim).map(h=>h.trim());
-  const rows = [];
+  const rows=[];
   for(let i=1;i<lines.length;i++){
-    let line = lines[i];
+    const line = lines[i];
     const cells=[]; let cur=''; let inq=false;
     for(let j=0;j<line.length;j++){
       const ch=line[j];
       if(ch==='"'){inq=!inq; continue;}
-      if(ch===delim && !inq){cells.push(cur); cur='';}
-      else{cur+=ch;}
+      if(ch===delim && !inq){cells.push(cur); cur='';} else {cur+=ch;}
     }
     cells.push(cur);
-    const obj={};
-    headers.forEach((h,idx)=>{obj[h]= (cells[idx]||'').trim();});
-    rows.push(obj);
+    const o={}; headers.forEach((h,idx)=>o[h]= (cells[idx]||'').trim());
+    rows.push(o);
   }
-  return {headers, rows};
+  return {rows};
 }
+function yearFrom(s){const m=(s||'').match(/(\d{4})/); return m?m[1]:'';}
+const S={rows:[],filtered:[],idx:0,playing:false,timer:null,interval:6000,domain:'faucigny'};
 
-const state = {rows:[], filtered:[], idx:0, playing:false, timer:null, interval:6000, domain:'faucigny'};
-
-function yearOptions(rows){
+function yearOptions(){
   const sel=document.getElementById('year'); sel.innerHTML='<option value="">Année…</option>';
-  const years = Array.from(new Set(rows.map(r=>yearFrom(r['Date']||r['date'])))).filter(Boolean).sort();
+  const years=[...new Set(S.rows.map(r=>yearFrom(r['Date'])))].filter(Boolean).sort();
   years.forEach(y=>{const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);});
 }
-
-function chipsInfo(rows){
-  const c = document.getElementById('chips'); c.innerHTML='';
-  const n = rows.length;
-  const dates = Array.from(new Set(rows.map(r=>yearFrom(r['Date'])))).filter(Boolean).length;
-  const mk=(t)=>{const s=document.createElement('span'); s.className='chip'; s.textContent=t; return s;};
-  c.appendChild(mk(n+' actes'));
-  c.appendChild(mk(dates+' années'));
-}
-
 function applyFilter(){
-  const q = norm(document.getElementById('q').value);
-  const y = document.getElementById('year').value;
-  const rows = state.rows.filter(r=>{
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const y=document.getElementById('year').value;
+  S.filtered = S.rows.filter(r=>{
     const blob = [r['Date'], r['N° acte']||r['Numero']||r['N°'], r['Personnages / Objet']||r['Personnages']||r['Objet'], r['Citation latine']||r['Latin'], r['Traduction française']||r['Traduction']].join(' ').toLowerCase();
     const okQ = !q || blob.includes(q);
     const okY = !y || yearFrom(r['Date'])===y;
     return okQ && okY;
   });
-  state.filtered = rows;
-  document.getElementById('count').textContent = rows.length + (rows.length>1?' actes':' acte');
-  renderTable(rows);
-  setParam('q', document.getElementById('q').value.trim());
-  setParam('y', y);
+  document.getElementById('count').textContent = S.filtered.length;
+  renderTable();
 }
-
-function renderTable(rows){
-  const tbody=document.querySelector('#tbl tbody'); tbody.innerHTML='';
+function renderTable(){
+  const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
   const get=(r,k)=>r[k]||r[k.toLowerCase()]||'';
-  rows.forEach((r,i)=>{
+  S.filtered.forEach((r,i)=>{
     const tr=document.createElement('tr');
     tr.innerHTML = `<td>${get(r,'Date')}</td>
                     <td>${get(r,'N° acte')||get(r,'Numero')||get(r,'N°')}</td>
                     <td>${get(r,'Personnages / Objet')||get(r,'Personnages')||get(r,'Objet')}</td>
-                    <td>${(get(r,'Citation latine')||get(r,'Latin')).slice(0,140)}${(get(r,'Citation latine')||get(r,'Latin')).length>140?'…':''}</td>
-                    <td>${(get(r,'Traduction française')||get(r,'Traduction')).slice(0,140)}${(get(r,'Traduction française')||get(r,'Traduction')).length>140?'…':''}</td>
+                    <td>${(get(r,'Citation latine')||get(r,'Latin')).slice(0,120)}${(get(r,'Citation latine')||get(r,'Latin')).length>120?'…':''}</td>
+                    <td>${(get(r,'Traduction française')||get(r,'Traduction')).slice(0,120)}${(get(r,'Traduction française')||get(r,'Traduction')).length>120?'…':''}</td>
                     <td><button data-i="${i}">Voir</button></td>`;
-    tbody.appendChild(tr);
+    tb.appendChild(tr);
   });
-  tbody.querySelectorAll('button').forEach(b=> b.addEventListener('click', e=> openModal(parseInt(e.target.getAttribute('data-i'),10))));
+  tb.querySelectorAll('button').forEach(b=> b.addEventListener('click', e=> openModal(parseInt(e.target.getAttribute('data-i'),10))));
 }
-
 function openModal(i){
-  state.idx = i;
-  const r = state.filtered[i];
+  S.idx=i;
+  const r=S.filtered[i];
   const get=(k)=>r[k]||r[k.toLowerCase()]||'';
   document.getElementById('m-title').textContent = `Acte ${get('N° acte')||get('Numero')||get('N°')}`;
-  document.getElementById('m-meta').textContent = `${get('Date')}`;
+  document.getElementById('m-meta').textContent = get('Date');
   document.getElementById('m-objet').textContent = get('Personnages / Objet')||get('Personnages')||get('Objet');
   document.getElementById('m-latin').textContent = get('Citation latine')||get('Latin');
   document.getElementById('m-trad').textContent = get('Traduction française')||get('Traduction');
   document.getElementById('modal').classList.add('open');
 }
+function closeModal(){document.getElementById('modal').classList.remove('open'); stop();}
+function next(d=1){if(!S.filtered.length)return; S.idx=(S.idx+d+S.filtered.length)%S.filtered.length; openModal(S.idx);}
+function play(){S.playing=true;document.getElementById('play').textContent='Lecture auto (ON)'; if(S.timer)clearInterval(S.timer); S.timer=setInterval(()=>next(1),S.interval);}
+function stop(){S.playing=false;document.getElementById('play').textContent='Lecture auto'; if(S.timer){clearInterval(S.timer);S.timer=null;}}
 
-function closeModal(){ document.getElementById('modal').classList.remove('open'); stop(); }
-function next(delta=1){ if(state.filtered.length===0) return; state.idx=(state.idx+delta+state.filtered.length)%state.filtered.length; openModal(state.idx); }
-function play(){ state.playing=true; document.getElementById('play').textContent='Lecture auto (ON)'; document.getElementById('play').classList.add('playing'); if(state.timer) clearInterval(state.timer); state.timer=setInterval(()=>next(1), state.interval); }
-function stop(){ state.playing=false; document.getElementById('play').textContent='Lecture auto'; document.getElementById('play').classList.remove('playing'); if(state.timer){clearInterval(state.timer); state.timer=null;} }
+document.getElementById('btn-fenetres').onclick=()=>{ if(S.filtered.length){ openModal(0); play(); } };
+document.getElementById('close').onclick=closeModal;
+document.getElementById('next').onclick=()=>next(1);
+document.getElementById('prev').onclick=()=>next(-1);
+document.getElementById('play').onclick=()=> S.playing ? stop() : play();
+document.getElementById('q').oninput=applyFilter;
+document.getElementById('year').onchange=applyFilter;
+document.getElementById('domain').onchange=async(e)=>{
+  const d=e.target.value; S.domain=d;
+  const {rows}=await loadCSV('assets/'+d+'.csv');
+  S.rows=rows; yearOptions(); applyFilter();
+};
 
-document.getElementById('btn-fenetres').addEventListener('click', ()=>{ if(state.filtered.length>0){ openModal(0); play(); }});
-document.getElementById('btn-list').addEventListener('click', ()=> closeModal());
-document.getElementById('close').addEventListener('click', closeModal);
-document.getElementById('next').addEventListener('click', ()=>next(1));
-document.getElementById('prev').addEventListener('click', ()=>next(-1));
-document.getElementById('play').addEventListener('click', ()=> state.playing ? stop() : play());
-document.getElementById('interval').addEventListener('change', (e)=>{ const v=parseInt(e.target.value,10); if(v>=2000){ state.interval=v; if(state.playing){ stop(); play(); }}});
-window.addEventListener('keydown', (e)=>{ if(!document.getElementById('modal').classList.contains('open')) return;
-  if(e.key==='Escape') closeModal(); if(e.key==='ArrowRight') next(1); if(e.key==='ArrowLeft') next(-1);
-});
-
-// Theme toggle
-const themeBtn=document.getElementById('theme');
-function applyTheme(t){ document.body.classList.toggle('light', t==='light'); localStorage.setItem('theme', t); }
-themeBtn.addEventListener('click', ()=>{ const t = document.body.classList.contains('light') ? 'dark' : 'light'; applyTheme(t); });
-applyTheme(localStorage.getItem('theme')||'dark');
-
-// Domain (dataset) handling
-async function loadDomain(d){
-  state.domain = d;
-  setParam('d', d);
-  let file = `assets/${d}.csv`;
-  try{
-    const {rows} = await loadCSV(file);
-    state.rows = rows; yearOptions(rows); chipsInfo(rows); applyFilter();
-  }catch(e){
-    alert(`Données absentes pour « ${d} ». Ajoutez ${file} et rechargez.`);
-    // revert to faucigny
-    document.getElementById('domain').value = 'faucigny';
-    const {rows} = await loadCSV('assets/faucigny.csv');
-    state.rows = rows; yearOptions(rows); chipsInfo(rows); applyFilter();
-  }
-}
-
-document.getElementById('domain').addEventListener('change', (e)=> loadDomain(e.target.value));
-document.getElementById('q').addEventListener('input', applyFilter);
-document.getElementById('year').addEventListener('change', applyFilter);
-
-// Init with URL params
 (async function init(){
-  const p = params();
-  const d = p.d || 'faucigny';
-  document.getElementById('domain').value = d;
-  const {rows} = await loadCSV(`assets/${d}.csv`).catch(()=>({rows:[]}));
-  if(rows.length===0){
-    // fallback
-    const r2 = await loadCSV('assets/faucigny.csv'); state.rows=r2.rows;
-  }else{
-    state.rows = rows;
-  }
-  yearOptions(state.rows); chipsInfo(state.rows);
-  document.getElementById('q').value = p.q || '';
-  if(p.y){ document.getElementById('year').value = p.y; }
-  applyFilter();
+  const {rows} = await loadCSV('assets/faucigny.csv');
+  S.rows = rows;
+  yearOptions(); applyFilter();
 })();
 </script>
 </body>
