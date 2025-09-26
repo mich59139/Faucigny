@@ -4,13 +4,13 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Inventaire — Lecteur simple (CSV)</title>
+<title>Inventaire — Lecteur robuste (CSV)</title>
 <link rel="stylesheet" href="assets/style.css"/>
 </head>
 <body>
 <header>
   <div class="header-inner">
-    <h1>Inventaire — Lecteur simple</h1>
+    <h1>Inventaire — Lecteur robuste</h1>
     <div class="controls">
       <select id="domain">
         <option value="faucigny">Faucigny</option>
@@ -25,12 +25,16 @@
 </header>
 
 <main class="main">
+  <div id="diag">
+    Domaine: <code id="dname"></code> · Lignes lues: <code id="rows"></code> · En-têtes: <code id="heads"></code>
+  </div>
   <table class="table" id="tbl">
     <thead>
       <tr><th>Date</th><th>N°</th><th>Personnages / Objet</th><th>Latin</th><th>Traduction</th><th></th></tr>
     </thead>
     <tbody></tbody>
   </table>
+  <p><small class="muted">Si “Faucigny” affiche 0, vérifie que <code>assets/faucigny.csv</code> contient bien les colonnes attendues.</small></p>
 </main>
 
 <div class="modal" id="modal">
@@ -60,15 +64,21 @@
 </div>
 
 <script>
+// Robust CSV loader with BOM strip and header normalization
+function stripBOM(s){ if(s.charCodeAt(0)===0xFEFF){ return s.slice(1);} return s; }
 async function loadCSV(url){
-  const txt = await (await fetch(url)).text();
-  const delim = (txt.indexOf(';') >= 0 && (txt.split(';').length > txt.split(',').length)) ? ';' : ',';
+  const resp = await fetch(url);
+  const raw = await resp.text();
+  const txt = stripBOM(raw);
   const lines = txt.split(/\r?\n/).filter(l=>l.trim().length>0);
-  if(!lines.length) return {rows:[]};
-  const headers = lines[0].split(delim).map(h=>h.trim());
-  const rows=[];
-  for(let i=1;i<lines.length;i++){
-    const line = lines[i];
+  if(!lines.length) return {headers:[], rows:[]};
+  // detect delimiter on header line
+  const headLine = lines[0];
+  const comma = (headLine.match(/,/g)||[]).length;
+  const semi = (headLine.match(/;/g)||[]).length;
+  const delim = semi>comma ? ';' : ',';
+  const headers = headLine.split(delim).map(h=>h.trim());
+  function parseLine(line){
     const cells=[]; let cur=''; let inq=false;
     for(let j=0;j<line.length;j++){
       const ch=line[j];
@@ -76,41 +86,77 @@ async function loadCSV(url){
       if(ch===delim && !inq){cells.push(cur); cur='';} else {cur+=ch;}
     }
     cells.push(cur);
-    const o={}; headers.forEach((h,idx)=>o[h]= (cells[idx]||'').trim());
-    rows.push(o);
+    return cells.map(c=>c.trim());
   }
-  return {rows};
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const cells = parseLine(lines[i]);
+    const obj={};
+    headers.forEach((h,idx)=> obj[h] = (cells[idx]||"").trim());
+    rows.push(obj);
+  }
+  return {headers, rows};
 }
-function yearFrom(s){const m=(s||'').match(/(\d{4})/); return m?m[1]:'';}
-const S={rows:[],filtered:[],idx:0,playing:false,timer:null,interval:6000,domain:'faucigny'};
+function normKey(s){ return (s||'').toLowerCase().replace(/\s+/g,' ').replace(/é/g,'e').replace(/è/g,'e').replace(/ê/g,'e').replace(/°/g,''); }
+const F = {
+  date: ['date'],
+  num: ['n acte','n','no acte','numero','n° acte','n°'],
+  objet: ['personnages / objet','personnages','objet'],
+  latin: ['citation latine','latin'],
+  trad: ['traduction francaise','traduction française','traduction']
+};
+function getField(row, want, headers){
+  // find first matching header in row
+  for(const h of headers){
+    const nk = normKey(h);
+    for(const cand of F[want]){
+      if(nk === cand) return row[h] || '';
+    }
+  }
+  return '';
+}
+function yearFrom(s){ const m=(s||'').match(/(\d{4})/); return m?m[1]:''; }
+
+const S={rows:[],filtered:[],idx:0,playing:false,timer:null,interval:6000,domain:'faucigny',headers:[]};
 
 function yearOptions(){
   const sel=document.getElementById('year'); sel.innerHTML='<option value="">Année…</option>';
-  const years=[...new Set(S.rows.map(r=>yearFrom(r['Date'])))].filter(Boolean).sort();
+  const years=[...new Set(S.rows.map(r=>yearFrom(getField(r,'date',S.headers))))].filter(Boolean).sort();
   years.forEach(y=>{const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);});
 }
 function applyFilter(){
   const q=(document.getElementById('q').value||'').toLowerCase();
   const y=document.getElementById('year').value;
   S.filtered = S.rows.filter(r=>{
-    const blob = [r['Date'], r['N° acte']||r['Numero']||r['N°'], r['Personnages / Objet']||r['Personnages']||r['Objet'], r['Citation latine']||r['Latin'], r['Traduction française']||r['Traduction']].join(' ').toLowerCase();
+    const date = getField(r,'date',S.headers);
+    const num = getField(r,'num',S.headers);
+    const obj = getField(r,'objet',S.headers);
+    const lat = getField(r,'latin',S.headers);
+    const trd = getField(r,'trad',S.headers);
+    const blob = [date,num,obj,lat,trd].join(' ').toLowerCase();
     const okQ = !q || blob.includes(q);
-    const okY = !y || yearFrom(r['Date'])===y;
+    const okY = !y || yearFrom(date)===y;
     return okQ && okY;
   });
   document.getElementById('count').textContent = S.filtered.length;
+  document.getElementById('rows').textContent = S.rows.length;
+  document.getElementById('heads').textContent = S.headers.join(' | ');
   renderTable();
 }
 function renderTable(){
   const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
-  const get=(r,k)=>r[k]||r[k.toLowerCase()]||'';
   S.filtered.forEach((r,i)=>{
+    const date = getField(r,'date',S.headers);
+    const num = getField(r,'num',S.headers);
+    const obj = getField(r,'objet',S.headers);
+    const lat = getField(r,'latin',S.headers);
+    const trd = getField(r,'trad',S.headers);
     const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${get(r,'Date')}</td>
-                    <td>${get(r,'N° acte')||get(r,'Numero')||get(r,'N°')}</td>
-                    <td>${get(r,'Personnages / Objet')||get(r,'Personnages')||get(r,'Objet')}</td>
-                    <td>${(get(r,'Citation latine')||get(r,'Latin')).slice(0,120)}${(get(r,'Citation latine')||get(r,'Latin')).length>120?'…':''}</td>
-                    <td>${(get(r,'Traduction française')||get(r,'Traduction')).slice(0,120)}${(get(r,'Traduction française')||get(r,'Traduction')).length>120?'…':''}</td>
+    tr.innerHTML = `<td>${date}</td>
+                    <td>${num}</td>
+                    <td>${obj}</td>
+                    <td>${lat.slice(0,140)}${lat.length>140?'…':''}</td>
+                    <td>${trd.slice(0,140)}${trd.length>140?'…':''}</td>
                     <td><button data-i="${i}">Voir</button></td>`;
     tb.appendChild(tr);
   });
@@ -119,12 +165,16 @@ function renderTable(){
 function openModal(i){
   S.idx=i;
   const r=S.filtered[i];
-  const get=(k)=>r[k]||r[k.toLowerCase()]||'';
-  document.getElementById('m-title').textContent = `Acte ${get('N° acte')||get('Numero')||get('N°')}`;
-  document.getElementById('m-meta').textContent = get('Date');
-  document.getElementById('m-objet').textContent = get('Personnages / Objet')||get('Personnages')||get('Objet');
-  document.getElementById('m-latin').textContent = get('Citation latine')||get('Latin');
-  document.getElementById('m-trad').textContent = get('Traduction française')||get('Traduction');
+  const date = getField(r,'date',S.headers);
+  const num = getField(r,'num',S.headers);
+  const obj = getField(r,'objet',S.headers);
+  const lat = getField(r,'latin',S.headers);
+  const trd = getField(r,'trad',S.headers);
+  document.getElementById('m-title').textContent = `Acte ${num}`;
+  document.getElementById('m-meta').textContent = date;
+  document.getElementById('m-objet').textContent = obj;
+  document.getElementById('m-latin').textContent = lat;
+  document.getElementById('m-trad').textContent = trd;
   document.getElementById('modal').classList.add('open');
 }
 function closeModal(){document.getElementById('modal').classList.remove('open'); stop();}
@@ -141,12 +191,17 @@ document.getElementById('q').oninput=applyFilter;
 document.getElementById('year').onchange=applyFilter;
 document.getElementById('domain').onchange=async(e)=>{
   const d=e.target.value; S.domain=d;
-  const {rows}=await loadCSV('assets/'+d+'.csv');
-  S.rows=rows; yearOptions(); applyFilter();
+  document.getElementById('dname').textContent = d;
+  const {headers, rows} = await loadCSV('assets/'+d+'.csv');
+  S.headers = headers;
+  S.rows = rows;
+  yearOptions(); applyFilter();
 };
 
 (async function init(){
-  const {rows} = await loadCSV('assets/faucigny.csv');
+  document.getElementById('dname').textContent = 'faucigny';
+  const {headers, rows} = await loadCSV('assets/faucigny.csv');
+  S.headers = headers;
   S.rows = rows;
   yearOptions(); applyFilter();
 })();
